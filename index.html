@@ -12,24 +12,70 @@
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .message-bubble { border-radius: 20px; transition: all 0.2s ease; }
         .active-chat { background-color: #c2e7ff !important; }
-        .nexus-bg { background: linear-gradient(135deg, #f8fdff 0%, #e8f0fe 100%); }
+        
+        /* Subtle Nexus background gradient matching image */
+        .nexus-bg { background: linear-gradient(180deg, #f3f7fd 0%, #eef5fc 100%); }
+        .nexus-card { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.4); }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(-10px); }
+        }
+        .animate-fade { animation: fadeIn 0.5s ease-out forwards; }
+        .animate-fade-out { animation: fadeOut 0.4s ease-in forwards; }
     </style>
 </head>
 <body class="bg-white overflow-hidden">
     <div id="app" class="h-screen flex flex-col md:flex-row">
-        <!-- Landing / Login Screen -->
-        <div id="login-screen" class="flex flex-col items-center justify-center w-full h-full nexus-bg p-6">
-            <div class="w-20 h-20 bg-[#c2e7ff] rounded-[24px] flex items-center justify-center mb-8 shadow-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+        
+        <!-- Nexus OS Integrated Sign-in / Loading Screen -->
+        <div id="login-screen" class="flex flex-col items-center justify-center w-full h-full nexus-bg p-6 relative">
+            
+            <!-- 1. Connecting View (Matches uploaded image exactly) -->
+            <div id="connecting-view" class="flex flex-col items-center text-center absolute w-full px-4 transition-opacity duration-500 z-10">
+                <!-- Icon -->
+                <div class="w-[88px] h-[88px] bg-[#cce8ff] rounded-[30px] flex items-center justify-center mb-6 shadow-sm mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+                </div>
+                
+                <!-- Text Content -->
+                <h1 class="text-[32px] font-medium text-[#191c1e] tracking-tight mb-3">Google Messages</h1>
+                <p class="text-[#43474e] mb-10 text-[15px] leading-relaxed max-w-sm mx-auto">
+                    Simple, helpful messaging by Google,<br>integrated with Nexus OS.
+                </p>
+                
+                <!-- Pill Button -->
+                <button class="bg-[#00639b] text-white px-8 py-3.5 rounded-full font-medium shadow-sm w-auto cursor-default">
+                    Connecting...
+                </button>
+                
+                <!-- Footer -->
+                <div class="mt-[72px] text-[13px] text-[#73777f] flex flex-col items-center gap-2 opacity-80">
+                    <p>By signing in, you agree to the Terms of Service</p>
+                    <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" class="text-[#00639b] hover:underline">Visit Nexus OS</a>
+                </div>
             </div>
-            <h1 class="text-3xl font-medium text-[#191c1e] mb-2 text-center">Google Messages</h1>
-            <p class="text-[#43474e] mb-8 text-center max-w-xs">Simple, helpful messaging by Google, integrated with Nexus OS.</p>
-            <button onclick="handleLogin()" id="login-btn" class="flex items-center gap-3 bg-[#00639b] hover:bg-[#004a75] text-white px-8 py-4 rounded-full font-medium transition-all shadow-md active:scale-95">
-                Sign in with Nexus
-            </button>
-            <div class="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
-                <p>By signing in, you agree to the Terms of Service</p>
-                <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" class="text-[#00639b] hover:underline">Visit Nexus OS</a>
+
+            <!-- 2. External Sign-in View (Transitions in) -->
+            <div id="external-signin-view" class="w-full flex flex-col items-center text-center absolute hidden z-20">
+                <div class="w-20 h-20 bg-[#c2e7ff] rounded-[24px] flex items-center justify-center mb-8 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+                </div>
+                
+                <h1 class="text-[32px] font-medium text-[#191c1e] mb-2 text-center">Google Messages</h1>
+                <p class="text-[#43474e] mb-8 text-center max-w-xs">Sign in with your Nexus OS account to start messaging.</p>
+                
+                <button onclick="handleNexusRedirect()" id="login-btn" class="flex items-center gap-3 bg-[#00639b] hover:bg-[#004a75] text-white px-8 py-4 rounded-full font-medium transition-all shadow-md active:scale-95">
+                    Sign in with Nexus
+                </button>
+                
+                <div class="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
+                    <p>Secure authentication via Nexus OS</p>
+                </div>
             </div>
         </div>
 
@@ -41,9 +87,7 @@
                     <h1 class="text-[22px] font-normal">Messages</h1>
                     <div class="flex items-center gap-2">
                         <button class="p-2 hover:bg-[#e0e2e5] rounded-full"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
-                        <button onclick="openProfileModal()" id="profile-btn" class="w-9 h-9 rounded-full bg-[#00639b] text-white flex items-center justify-center text-sm font-bold overflow-hidden">
-                            ?
-                        </button>
+                        <button onclick="openProfileModal()" id="profile-btn" class="w-9 h-9 rounded-full bg-[#00639b] text-white flex items-center justify-center text-sm font-bold overflow-hidden">?</button>
                     </div>
                 </header>
 
@@ -55,13 +99,13 @@
                 </div>
 
                 <div id="conversations-list" class="flex-1 overflow-y-auto space-y-1">
-                    <!-- Conversations will be injected here -->
+                    <!-- Conversations injected here -->
                 </div>
 
                 <div class="p-4 border-t border-[#e0e2e5] bg-white">
                     <div class="flex items-center justify-between p-3 bg-white rounded-2xl border border-[#e0e2e5]">
                         <div class="flex flex-col">
-                            <span class="text-[10px] uppercase font-bold text-[#73777f]">My ID</span>
+                            <span class="text-[10px] uppercase font-bold text-[#73777f]">Nexus ID</span>
                             <span id="my-phone-number" class="text-sm font-mono text-[#00639b]">Loading...</span>
                         </div>
                         <button onclick="copyMyNumber()" class="p-2 hover:bg-[#f1f3f4] rounded-full text-[#00639b]">
@@ -73,16 +117,14 @@
 
             <!-- Chat Content -->
             <div id="chat-window" class="hidden md:flex flex-1 flex-col h-full bg-[#f8fdff] relative">
-                <!-- Welcome State -->
                 <div id="welcome-state" class="flex-1 flex flex-col items-center justify-center p-8 text-center">
                     <div class="bg-[#c2e7ff] p-10 rounded-[40px] mb-8 shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
                     </div>
-                    <h2 class="text-[32px] font-normal mb-3">Select a chat to start</h2>
-                    <p class="text-[#43474e] max-w-sm">Messaging synced with Nexus OS.</p>
+                    <h2 class="text-[32px] font-normal mb-3">Welcome to Chat</h2>
+                    <p class="text-[#43474e] max-w-sm">Select a contact to view your RCS messages.</p>
                 </div>
 
-                <!-- Active Chat State -->
                 <div id="active-chat-state" class="hidden flex flex-col h-full">
                     <header class="flex items-center justify-between px-4 py-2 border-b border-[#e0e2e5] bg-white h-[72px] shrink-0">
                         <div class="flex items-center gap-3">
@@ -96,11 +138,7 @@
                             </div>
                         </div>
                     </header>
-
-                    <div id="messages-container" class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-1.5 scroll-smooth hide-scrollbar">
-                        <!-- Messages injected here -->
-                    </div>
-
+                    <div id="messages-container" class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-1.5 scroll-smooth hide-scrollbar"></div>
                     <div class="p-4 bg-[#f8fdff]">
                         <form id="message-form" class="flex items-end gap-2 bg-[#f0f4f8] rounded-[28px] p-1.5 shadow-sm border border-[#e0e2e5]">
                             <button type="button" class="p-3 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg></button>
@@ -137,8 +175,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyC6fcHsdtBCHLWDLKm9yIJokgeoll0i7c0",
@@ -160,10 +198,50 @@
         let allUsers = {};
         let activeChatId = null;
 
-        // UI Handlers
-        window.handleLogin = async () => {
-            document.getElementById('login-btn').innerText = "Connecting...";
-            await signInAnonymously(auth);
+        // Transition Logic from "Connecting..." to "Sign In" Form
+        document.addEventListener("DOMContentLoaded", () => {
+            // Wait 2 seconds, then transition to the login form
+            // (Unless auth state listener resolves first and hides the whole screen)
+            setTimeout(() => {
+                const loginScreen = document.getElementById('login-screen');
+                const connectingView = document.getElementById('connecting-view');
+                const signinFormView = document.getElementById('external-signin-view');
+                
+                // Only transition if the login screen is still visible
+                if (!loginScreen.classList.contains('hidden')) {
+                    connectingView.classList.add('animate-fade-out');
+                    setTimeout(() => {
+                        connectingView.classList.add('hidden');
+                        signinFormView.classList.remove('hidden');
+                        signinFormView.classList.add('animate-fade');
+                    }, 400); // Wait for fade out animation
+                }
+            }, 2500); 
+        });
+
+        // Nexus OS Integration Logic
+        window.handleNexusRedirect = () => {
+            // Redirect to Nexus OS for authentication
+            window.location.href = "https://bex-creator.github.io/Nexus-OS/index.html";
+        };
+
+        // Initialize session
+        const initSession = async () => {
+            // Check for Nexus token in URL or environment
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+
+            if (token) {
+                try {
+                    await signInWithCustomToken(auth, token);
+                } catch (e) {
+                    await signInAnonymously(auth);
+                }
+            } else if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                // If no token yet, wait for user to click login and redirect
+            }
         };
 
         window.openProfileModal = () => document.getElementById('profile-modal').classList.remove('hidden');
@@ -195,7 +273,6 @@
         window.startChat = () => {
             const input = document.getElementById('new-chat-input').value.trim();
             if (!input) return;
-            // Check if input is a name in allUsers
             const found = Object.values(allUsers).find(u => u.displayName?.toLowerCase() === input.toLowerCase() || u.phoneNumber === input);
             selectChat(found ? found.uid : input);
             closeModal('new-chat-modal');
@@ -211,7 +288,7 @@
             document.getElementById('chat-window').classList.remove('hidden');
             
             const contact = allUsers[uid];
-            document.getElementById('active-chat-name').innerText = contact?.displayName || "Unknown User";
+            document.getElementById('active-chat-name').innerText = contact?.displayName || "Contact";
             document.getElementById('active-chat-id').innerText = contact?.phoneNumber || uid.substring(0, 8);
             document.getElementById('active-chat-avatar').innerText = (contact?.displayName || "?")[0].toUpperCase();
             
@@ -224,7 +301,6 @@
             document.getElementById('sidebar').classList.remove('hidden');
         };
 
-        // Auth Listener
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
@@ -241,7 +317,7 @@
                     userProfile = { 
                         uid: user.uid, 
                         displayName: '', 
-                        phoneNumber: `MSG-${user.uid.substring(0, 6).toUpperCase()}` 
+                        phoneNumber: `NEXUS-${user.uid.substring(0, 4).toUpperCase()}` 
                     };
                     await setDoc(userRef, userProfile);
                     openProfileModal();
@@ -251,21 +327,16 @@
                 document.getElementById('profile-btn').innerText = userProfile.displayName ? userProfile.displayName[0].toUpperCase() : "?";
                 
                 setupListeners();
-            } else {
-                document.getElementById('login-screen').classList.remove('hidden');
-                document.getElementById('main-interface').classList.add('hidden');
             }
         });
 
         let messages = [];
         function setupListeners() {
-            // Users listener
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
                 snap.docs.forEach(d => allUsers[d.id] = d.data());
                 renderConversations();
             });
 
-            // Messages listener
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), (snap) => {
                 messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 renderConversations();
@@ -338,6 +409,8 @@
                 createdAt: Date.now()
             });
         };
+
+        initSession();
     </script>
 </body>
 </html>
