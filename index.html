@@ -73,6 +73,8 @@
                     Sign in with Nexus
                 </button>
                 
+                <p id="auth-error-msg" class="text-red-500 text-xs mt-4 hidden font-medium max-w-[280px] text-center"></p>
+                
                 <div class="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
                     <p>Secure authentication via Nexus OS</p>
                 </div>
@@ -200,7 +202,7 @@
 
         // Transition Logic from "Connecting..." to "Sign In" Form
         document.addEventListener("DOMContentLoaded", () => {
-            // Wait 2 seconds, then transition to the login form
+            // Wait 2.5 seconds, then transition to the login form
             // (Unless auth state listener resolves first and hides the whole screen)
             setTimeout(() => {
                 const loginScreen = document.getElementById('login-screen');
@@ -220,14 +222,42 @@
         });
 
         // Nexus OS Integration Logic
-        window.handleNexusRedirect = () => {
+        window.handleNexusRedirect = async () => {
+            const btn = document.getElementById('login-btn');
+            const errorMsg = document.getElementById('auth-error-msg');
+            errorMsg.classList.add('hidden');
+            
             if (window !== window.parent) {
                 // If running inside an iframe (Nexus OS), send a message to the parent OS
-                // so it can handle the login natively without opening a new tab!
                 window.parent.postMessage({ type: 'NEXUS_AUTH_REQUEST' }, '*');
+                btn.innerText = "Waiting for Nexus OS...";
+                
+                // Fallback timeout in case parent OS doesn't respond correctly
+                setTimeout(async () => {
+                    if (btn.innerText === "Waiting for Nexus OS...") {
+                        console.warn("Nexus OS did not respond. Falling back to anonymous login.");
+                        btn.innerText = "Authenticating Fallback...";
+                        try {
+                            await signInAnonymously(auth);
+                        } catch (e) {
+                            console.error("Fallback auth error:", e);
+                            btn.innerText = "Sign in with Nexus";
+                            errorMsg.innerText = "Firebase Error: " + e.message + " (Ensure Anonymous Auth is enabled in Firebase)";
+                            errorMsg.classList.remove('hidden');
+                        }
+                    }
+                }, 4000);
             } else {
-                // Not in an iframe, redirect in the current window normally
-                window.location.href = "https://bex-creator.github.io/Nexus-OS/index.html";
+                // Not in an iframe, just sign in directly for testing
+                btn.innerText = "Authenticating...";
+                try {
+                    await signInAnonymously(auth);
+                } catch (e) {
+                    console.error("Direct auth error:", e);
+                    btn.innerText = "Sign in with Nexus";
+                    errorMsg.innerText = "Firebase Error: " + e.message + " (Ensure Anonymous Auth is enabled in Firebase)";
+                    errorMsg.classList.remove('hidden');
+                }
             }
         };
 
@@ -246,7 +276,7 @@
             } else if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token);
             } else {
-                // To trigger it initially:
+                // To trigger it initially without requiring a click:
                 if (window !== window.parent) {
                     window.parent.postMessage({ type: 'NEXUS_AUTH_REQUEST' }, '*');
                 }
@@ -313,18 +343,27 @@
         // Inside your Chat App codebase
         window.addEventListener('message', async (event) => {
             if (event.data && event.data.type === 'NEXUS_AUTH_SUCCESS') {
-                const username = event.data.user.username;
-                const profilePic = event.data.user.photo;
+                const username = event.data.user?.username || "Nexus User";
+                const profilePic = event.data.user?.photo || "";
                 console.log("Logged in via Nexus OS as:", username);
                 
                 window.pendingNexusUser = { username, profilePic };
                 
                 // Continue logging them into the chat...
-                document.getElementById('login-btn').innerText = "Authenticating...";
+                const btn = document.getElementById('login-btn');
+                const errorMsg = document.getElementById('auth-error-msg');
+                if (btn) btn.innerText = "Authenticating...";
+                if (errorMsg) errorMsg.classList.add('hidden');
+                
                 try {
                     await signInAnonymously(auth);
                 } catch (e) {
                     console.error("Firebase auth error:", e);
+                    if (btn) btn.innerText = "Sign in with Nexus";
+                    if (errorMsg) {
+                        errorMsg.innerText = "Firebase Error: " + e.message + " (Ensure Anonymous Auth is enabled in Firebase)";
+                        errorMsg.classList.remove('hidden');
+                    }
                 }
             }
         });
