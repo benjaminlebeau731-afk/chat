@@ -1,637 +1,564 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P Network Hub | Chat & Call</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: { primary: '#3b82f6', dark: '#0f172a', panel: '#1e293b' }
-                }
-            }
-        }
-    </script>
-    <style>
-        /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-        #local-video { transform: scaleX(-1); } /* Mirror local video */
-    </style>
-</head>
-<body class="bg-dark text-slate-200 h-screen overflow-hidden flex flex-col font-sans relative">
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Search,
+  Menu,
+  MoreVertical,
+  Phone,
+  Video,
+  Smile,
+  PlusCircle,
+  Image as ImageIcon,
+  Send,
+  UserCircle2,
+  Mic,
+  MessageSquarePlus,
+  ArrowLeft,
+  X,
+  Copy,
+  Check,
+  User,
+  LogOut
+} from 'lucide-react';
 
-    <!-- Header -->
-    <header class="bg-panel border-b border-slate-700 p-4 flex justify-between items-center shadow-md z-10">
-        <div class="flex items-center gap-3">
-            <div class="bg-primary text-white p-2 rounded-lg flex items-center justify-center">
-                <i class="fa-solid fa-globe"></i>
-            </div>
-            <h1 class="text-xl font-bold tracking-wide">P2P Hub</h1>
-        </div>
-        <div class="flex items-center gap-4">
-            <span id="my-profile-name" class="text-sm font-semibold text-green-400 hidden"></span>
-            <button id="logout-btn" class="hidden text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-full border border-slate-600 transition-colors">
-                Leave Network
-            </button>
-        </div>
-    </header>
+// --- Firebase Configuration ---
+const firebaseConfig = {
+  apiKey: "AIzaSyC6fcHsdtBCHLWDLKm9yIJokgeoll0i7c0",
+  authDomain: "os-chat-and-phone.firebaseapp.com",
+  projectId: "os-chat-and-phone",
+  storageBucket: "os-chat-and-phone.firebasestorage.app",
+  messagingSenderId: "177525708536",
+  appId: "1:177525708536:web:0238d2be8837452a214d0d",
+  measurementId: "G-SBKNFS2LRE"
+};
 
-    <!-- 1. LOGIN OVERLAY -->
-    <div id="login-overlay" class="absolute inset-0 bg-dark/95 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 transition-opacity duration-300">
-        <div class="bg-panel p-8 rounded-2xl shadow-2xl max-w-sm w-full border border-slate-700 text-center">
-            <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                <i class="fa-solid fa-user-astronaut text-3xl text-primary"></i>
-            </div>
-            <h2 class="text-2xl font-bold mb-2">Join the Network</h2>
-            <p class="text-slate-400 text-sm mb-6">Enter a display name to discover others and start chatting or calling.</p>
-            
-            <form id="login-form" class="space-y-4">
-                <input type="text" id="display-name" required placeholder="Your Name..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-center text-lg text-white placeholder-slate-500 focus:outline-none focus:border-primary transition-all" maxlength="20">
-                <button type="submit" id="join-btn" class="w-full bg-primary hover:bg-blue-600 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2">
-                    Enter <i class="fa-solid fa-arrow-right"></i>
-                </button>
-            </form>
-            <p id="auth-status" class="text-xs text-amber-400 mt-4 h-4"></p>
-        </div>
-    </div>
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'google-messages-clone';
 
-    <!-- 2. INCOMING CALL OVERLAY -->
-    <div id="incoming-call-overlay" class="hidden absolute top-4 right-4 bg-slate-800 border-2 border-primary p-4 rounded-xl shadow-2xl z-50 animate-bounce">
-        <div class="flex items-center gap-4">
-            <div class="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center text-primary">
-                <i class="fa-solid fa-phone-volume animate-pulse"></i>
-            </div>
-            <div>
-                <p class="text-xs text-slate-400">Incoming Video Call</p>
-                <p id="caller-name-display" class="font-bold text-white"></p>
-            </div>
-        </div>
-        <div class="flex gap-2 mt-4">
-            <button id="accept-call-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-semibold transition-colors">Accept</button>
-            <button id="reject-call-btn" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-sm font-semibold transition-colors">Reject</button>
-        </div>
-    </div>
+const loadFirebase = async () => {
+  if (window.firebaseApp) return window.firebaseApp;
+  const { initializeApp } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js');
+  const { getAuth, signInAnonymously, onAuthStateChanged, signOut } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js');
+  const { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, where } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+  
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  
+  window.firebaseApp = { app, auth, db, signInAnonymously, onAuthStateChanged, signOut, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, where };
+  return window.firebaseApp;
+};
 
-    <!-- MAIN APP LAYOUT -->
-    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+export default function App() {
+  const [fbInfo, setFbInfo] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [allUsers, setAllUsers] = useState({});
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [activeChat, setActiveChat] = useState(null);
+  const [inputText, setInputText] = useState('');
+  const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
+  const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+  const [newChatInput, setNewChatInput] = useState('');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [tempName, setTempName] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileView(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Initialization and Auth Listener
+  useEffect(() => {
+    let unsubscribeAuth;
+    const init = async () => {
+      try {
+        const fb = await loadFirebase();
+        setFbInfo(fb);
         
-        <!-- Left Sidebar: People -->
-        <aside class="w-full md:w-72 lg:w-80 border-r border-slate-800 bg-panel/30 flex flex-col">
-            <div class="p-4 border-b border-slate-800 bg-slate-800/30">
-                <div class="relative">
-                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
-                    <input type="text" id="search-input" placeholder="Search people..." class="w-full bg-slate-900 border border-slate-700 rounded-full pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-primary transition-colors">
-                </div>
-            </div>
-            <div class="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Online Now</div>
-            <div id="users-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-1">
-                <!-- User items injected here -->
-            </div>
-        </aside>
-
-        <!-- Right Area: Dynamic Views (Chat vs Video) -->
-        <section class="flex-1 relative flex flex-col bg-black">
+        unsubscribeAuth = fb.onAuthStateChanged(fb.auth, async (user) => {
+          if (user) {
+            const userRef = fb.doc(fb.db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+            const userSnap = await fb.getDoc(userRef);
             
-            <!-- VIEW A: MULTIPLAYER CHAT -->
-            <div id="view-chat" class="absolute inset-0 flex flex-col bg-panel/50 z-10">
-                <div class="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
-                    <h3 class="font-semibold flex items-center gap-2">
-                        <i class="fa-solid fa-hashtag text-primary"></i> Global Lounge
-                    </h3>
-                    <span class="text-xs text-slate-400" id="online-count">0 online</span>
-                </div>
-                
-                <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
-                    <div class="text-center text-slate-500 text-sm mt-4 italic">Welcome to the global hub. Say hi!</div>
-                </div>
-
-                <div class="p-4 bg-slate-800/50 border-t border-slate-800">
-                    <form id="chat-form" class="flex gap-2">
-                        <input type="text" id="chat-input" placeholder="Type a message to everyone..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors">
-                        <button type="submit" id="send-btn" class="bg-primary hover:bg-blue-600 text-white px-5 rounded-lg transition-colors">
-                            <i class="fa-solid fa-paper-plane"></i>
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- VIEW B: P2P VIDEO CALL -->
-            <div id="view-video" class="absolute inset-0 flex flex-col z-20 bg-black hidden">
-                <div class="absolute top-4 left-4 z-30 bg-black/50 backdrop-blur px-4 py-2 rounded-full border border-slate-700">
-                    <span class="text-sm font-semibold"><i class="fa-solid fa-lock text-green-400 mr-2"></i> P2P Call with <span id="active-call-name" class="text-primary"></span></span>
-                </div>
-                <div class="absolute top-4 right-4 z-30 text-white font-mono text-sm" id="call-status">Connecting...</div>
-
-                <div class="flex-1 relative overflow-hidden flex items-center justify-center">
-                    <video id="remote-video" autoplay playsinline class="w-full h-full object-cover"></video>
-                    
-                    <div class="absolute bottom-24 right-6 w-32 md:w-48 aspect-video bg-slate-800 rounded-xl overflow-hidden border-2 border-slate-700 shadow-xl" id="local-video-container">
-                        <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover"></video>
-                        <div class="absolute bottom-1 right-2 text-xs bg-black/50 px-1 rounded text-white">You</div>
-                    </div>
-                </div>
-
-                <div class="h-24 bg-gradient-to-t from-black to-transparent absolute bottom-0 left-0 w-full flex items-center justify-center z-30 pb-6">
-                    <button id="end-call-btn" class="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-xl shadow-lg transition-all hover:scale-105" title="End Call">
-                        <i class="fa-solid fa-phone-slash"></i>
-                    </button>
-                </div>
-            </div>
-
-        </section>
-    </main>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, addDoc, onSnapshot, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Firebase Init ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // --- App State ---
-        let currentUser = null;
-        let myProfile = { name: '', online: false };
-        let allUsers = [];
-        let allMessages = [];
-        let activeListeners = [];
-
-        // Load cached messages from local storage
-        const cachedMessages = localStorage.getItem('p2p_chat_history');
-        if (cachedMessages) {
-            try {
-                allMessages = JSON.parse(cachedMessages);
-            } catch(e) {}
-        }
-
-        // --- WebRTC State ---
-        let pc = null;
-        let localStream = null;
-        let currentCallTarget = null; // UID of person we are talking to
-        const iceServers = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-        };
-
-        // --- DOM Elements ---
-        const loginOverlay = document.getElementById('login-overlay');
-        const loginForm = document.getElementById('login-form');
-        const displayNameInput = document.getElementById('display-name');
-        const authStatus = document.getElementById('auth-status');
-        const myProfileName = document.getElementById('my-profile-name');
-        const logoutBtn = document.getElementById('logout-btn');
-
-        const searchInput = document.getElementById('search-input');
-        const usersListEl = document.getElementById('users-list');
-        const onlineCountEl = document.getElementById('online-count');
-        
-        const chatMessagesEl = document.getElementById('chat-messages');
-        const chatForm = document.getElementById('chat-form');
-        const chatInput = document.getElementById('chat-input');
-
-        const viewChat = document.getElementById('view-chat');
-        const viewVideo = document.getElementById('view-video');
-        const remoteVideo = document.getElementById('remote-video');
-        const localVideo = document.getElementById('local-video');
-        const activeCallName = document.getElementById('active-call-name');
-        const callStatus = document.getElementById('call-status');
-        const endCallBtn = document.getElementById('end-call-btn');
-
-        const incomingCallOverlay = document.getElementById('incoming-call-overlay');
-        const callerNameDisplay = document.getElementById('caller-name-display');
-        const acceptCallBtn = document.getElementById('accept-call-btn');
-        const rejectCallBtn = document.getElementById('reject-call-btn');
-
-        // --- 1. Authentication & Profile ---
-        const initAuth = async () => {
-            authStatus.textContent = "Connecting securely...";
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                authStatus.textContent = "";
-            } catch (error) {
-                console.error("Auth error:", error);
-                authStatus.textContent = "Connection failed. Please try again.";
-            }
-        };
-
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            // Pre-load cached messages now that we know who we are
-            if (allMessages.length > 0) renderMessages();
-            
-            // Auto-login if we have a saved profile
-            const savedName = localStorage.getItem('p2p_display_name');
-            if (user && savedName && !myProfile.online) {
-                performLogin(savedName);
-            }
-        });
-
-        async function performLogin(name) {
-            myProfile.name = name;
-            myProfile.online = true;
-            
-            // Save to local storage for future visits
-            localStorage.setItem('p2p_display_name', name);
-
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
-            await setDoc(userRef, { name: myProfile.name, online: true, timestamp: Date.now() });
-
-            // UI Changes
-            loginOverlay.classList.add('opacity-0', 'pointer-events-none');
-            myProfileName.textContent = myProfile.name;
-            myProfileName.classList.remove('hidden');
-            logoutBtn.classList.remove('hidden');
-
-            startDataSync();
-        }
-
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!currentUser) return;
-            
-            const name = displayNameInput.value.trim();
-            if (!name) return;
-
-            await performLogin(name);
-        });
-
-        logoutBtn.addEventListener('click', async () => {
-            if (!currentUser) return;
-            
-            // Clear local storage on explicit logout
-            localStorage.removeItem('p2p_display_name');
-            
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
-            await setDoc(userRef, { online: false }, { merge: true });
-            
-            activeListeners.forEach(unsub => unsub());
-            activeListeners = [];
-            
-            loginOverlay.classList.remove('opacity-0', 'pointer-events-none');
-            myProfileName.classList.add('hidden');
-            logoutBtn.classList.add('hidden');
-            endCall(); // End any active calls
-        });
-
-        // Try to set offline on close
-        window.addEventListener('beforeunload', () => {
-            if (currentUser && myProfile.online) {
-                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
-                // Beacon is best effort
-                navigator.sendBeacon(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/artifacts/${appId}/public/data/users/${currentUser.uid}?updateMask.fieldPaths=online`, JSON.stringify({ fields: { online: { booleanValue: false } }}));
-            }
-        });
-
-        // --- 2. Realtime Data Sync (Users, Chat, Signals) ---
-        function startDataSync() {
-            // A. Users Sync
-            const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-            const unsubUsers = onSnapshot(usersRef, (snapshot) => {
-                allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
-                renderUsers();
-            }, (err) => console.error("Users error", err));
-
-            // B. Global Chat Sync
-            const msgRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-            const unsubMsg = onSnapshot(msgRef, (snapshot) => {
-                allMessages = snapshot.docs.map(doc => doc.data());
-                // Save messages to local storage
-                localStorage.setItem('p2p_chat_history', JSON.stringify(allMessages));
-                renderMessages();
-            }, (err) => console.error("Messages error", err));
-
-            // C. Signaling Inbox Sync (For WebRTC Calls)
-            const myInboxRef = doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', currentUser.uid);
-            const unsubSignal = onSnapshot(myInboxRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    handleSignal(snapshot.data());
-                }
-            }, (err) => console.error("Signal error", err));
-
-            activeListeners.push(unsubUsers, unsubMsg, unsubSignal);
-        }
-
-        // --- 3. UI Rendering ---
-        function renderUsers() {
-            const term = searchInput.value.toLowerCase();
-            usersListEl.innerHTML = '';
-            
-            // Filter: Online, Not Me, Matches Search
-            const filtered = allUsers.filter(u => 
-                u.uid !== currentUser.uid && 
-                u.online && 
-                (u.name || '').toLowerCase().includes(term)
-            );
-
-            onlineCountEl.textContent = `${filtered.length + 1} online`;
-
-            filtered.forEach(u => {
-                const div = document.createElement('div');
-                div.className = 'flex items-center justify-between p-2 hover:bg-slate-800 rounded-lg group transition-colors';
-                div.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 relative">
-                            <i class="fa-solid fa-user"></i>
-                            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border border-slate-800 rounded-full"></span>
-                        </div>
-                        <span class="text-sm font-medium truncate w-28" title="${u.name}">${u.name}</span>
-                    </div>
-                    <button class="call-user-btn opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary text-primary hover:text-white w-8 h-8 rounded-full flex items-center justify-center transition-all" data-uid="${u.uid}" data-name="${u.name}" title="Video Call">
-                        <i class="fa-solid fa-video text-xs"></i>
-                    </button>
-                `;
-                usersListEl.appendChild(div);
-            });
-
-            if (filtered.length === 0) {
-                usersListEl.innerHTML = `<div class="text-xs text-slate-500 text-center mt-4">No others found.</div>`;
-            }
-
-            // Attach call listeners
-            document.querySelectorAll('.call-user-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const targetUid = e.currentTarget.dataset.uid;
-                    const targetName = e.currentTarget.dataset.name;
-                    initiateCall(targetUid, targetName);
-                });
-            });
-        }
-
-        searchInput.addEventListener('input', renderUsers);
-
-        function renderMessages() {
-            // Sort by timestamp and keep last 50
-            const sorted = allMessages.sort((a, b) => a.timestamp - b.timestamp).slice(-50);
-            chatMessagesEl.innerHTML = '';
-            
-            let lastSender = null;
-            sorted.forEach(msg => {
-                const isMe = msg.senderId === currentUser.uid;
-                const wrapper = document.createElement('div');
-                wrapper.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
-                
-                if (!isMe && lastSender !== msg.senderId) {
-                    const nameTag = document.createElement('span');
-                    nameTag.className = 'text-xs text-slate-400 ml-1 mb-1';
-                    nameTag.textContent = msg.senderName;
-                    wrapper.appendChild(nameTag);
-                }
-
-                const bubble = document.createElement('div');
-                bubble.className = `max-w-[85%] rounded-2xl px-4 py-2 text-sm ${isMe ? 'bg-primary text-white rounded-br-sm' : 'bg-slate-700 text-white rounded-bl-sm'}`;
-                bubble.textContent = msg.text;
-                
-                wrapper.appendChild(bubble);
-                chatMessagesEl.appendChild(wrapper);
-                lastSender = msg.senderId;
-            });
-            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-        }
-
-        chatForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const text = chatInput.value.trim();
-            if (!text || !currentUser) return;
-            
-            chatInput.value = '';
-            chatInput.focus();
-
-            const msgRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-            await addDoc(msgRef, {
-                text,
-                senderId: currentUser.uid,
-                senderName: myProfile.name,
-                timestamp: Date.now()
-            });
-        });
-
-        // --- 4. WebRTC Video Call Logic ---
-        
-        // Utilty: Wait for all ICE candidates to gather into SDP (No Trickle WebRTC)
-        function waitForAllICE(rtcPeerConnection) {
-            return new Promise(resolve => {
-                if (rtcPeerConnection.iceGatheringState === 'complete') return resolve();
-                const check = () => {
-                    if (rtcPeerConnection.iceGatheringState === 'complete') {
-                        rtcPeerConnection.removeEventListener('icegatheringstatechange', check);
-                        resolve();
-                    }
-                };
-                rtcPeerConnection.addEventListener('icegatheringstatechange', check);
-                setTimeout(resolve, 3000); // Failsafe
-            });
-        }
-
-        async function getMedia() {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                localVideo.srcObject = localStream;
-                return true;
-            } catch (err) {
-                console.error("Camera access denied", err);
-                alert("Cannot access camera/microphone.");
-                return false;
-            }
-        }
-
-        function createPC() {
-            if (pc) pc.close();
-            pc = new RTCPeerConnection(iceServers);
-            
-            if (localStream) {
-                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-            }
-
-            pc.ontrack = (e) => {
-                remoteVideo.srcObject = e.streams[0];
-            };
-
-            pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'connected') {
-                    callStatus.textContent = 'Connected';
-                    callStatus.className = 'absolute top-4 right-4 z-30 text-green-400 font-mono text-sm';
-                }
-                if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-                    endCall();
-                }
-            };
-        }
-
-        function switchView(mode) {
-            if (mode === 'video') {
-                viewChat.classList.add('hidden');
-                viewVideo.classList.remove('hidden');
+            if (userSnap.exists()) {
+              const data = userSnap.data();
+              setUserProfile(data);
+              if (!data.displayName) setIsProfileModalOpen(true);
             } else {
-                viewChat.classList.remove('hidden');
-                viewVideo.classList.add('hidden');
+              // Create default profile for first time users
+              const shortId = user.uid.substring(0, 6).toUpperCase();
+              const newData = { 
+                uid: user.uid, 
+                displayName: '', 
+                phoneNumber: `MSG-${shortId}`,
+                createdAt: Date.now() 
+              };
+              await fb.setDoc(userRef, newData);
+              setUserProfile(newData);
+              setIsProfileModalOpen(true);
             }
-        }
-
-        // Caller initiates
-        async function initiateCall(targetUid, targetName) {
-            if (currentCallTarget) return alert("You are already in a call.");
-            
-            const hasMedia = await getMedia();
-            if (!hasMedia) return;
-
-            currentCallTarget = targetUid;
-            activeCallName.textContent = targetName;
-            callStatus.textContent = 'Calling...';
-            callStatus.className = 'absolute top-4 right-4 z-30 text-amber-400 font-mono text-sm';
-            switchView('video');
-
-            createPC();
-            
-            try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                await waitForAllICE(pc); // Gather ICE inside SDP
-
-                // Send Offer via Target's Inbox
-                const targetInbox = doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', targetUid);
-                await setDoc(targetInbox, {
-                    type: 'offer',
-                    fromUid: currentUser.uid,
-                    fromName: myProfile.name,
-                    sdp: JSON.stringify(pc.localDescription),
-                    timestamp: Date.now()
-                });
-            } catch (err) {
-                console.error("Call initiation failed", err);
-                endCall();
-            }
-        }
-
-        // Handle Inbox Signals
-        let pendingOfferData = null;
-        async function handleSignal(data) {
-            // Ignore old signals (older than 30s)
-            if (Date.now() - data.timestamp > 30000) return;
-
-            if (data.type === 'offer' && data.fromUid !== currentCallTarget) {
-                // Incoming Call Request
-                pendingOfferData = data;
-                callerNameDisplay.textContent = data.fromName;
-                incomingCallOverlay.classList.remove('hidden');
-                
-                // Clear the inbox so it doesn't trigger again
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', currentUser.uid));
-            } 
-            else if (data.type === 'answer' && data.fromUid === currentCallTarget) {
-                // Remote accepted our call
-                if (pc && pc.signalingState !== 'stable') {
-                    const answerDesc = new RTCSessionDescription(JSON.parse(data.sdp));
-                    await pc.setRemoteDescription(answerDesc);
-                }
-                // Clear the inbox
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', currentUser.uid));
-            }
-            else if (data.type === 'reject' && data.fromUid === currentCallTarget) {
-                alert(`${data.fromName || 'User'} declined the call.`);
-                endCall();
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', currentUser.uid));
-            }
-        }
-
-        // Callee actions
-        acceptCallBtn.addEventListener('click', async () => {
-            incomingCallOverlay.classList.add('hidden');
-            if (!pendingOfferData) return;
-
-            const targetUid = pendingOfferData.fromUid;
-            const targetName = pendingOfferData.fromName;
-            const offerSdp = JSON.parse(pendingOfferData.sdp);
-            
-            currentCallTarget = targetUid;
-            activeCallName.textContent = targetName;
-            callStatus.textContent = 'Connecting...';
-            callStatus.className = 'absolute top-4 right-4 z-30 text-amber-400 font-mono text-sm';
-            switchView('video');
-
-            const hasMedia = await getMedia();
-            if (!hasMedia) {
-                endCall();
-                return;
-            }
-
-            createPC();
-
-            try {
-                await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await waitForAllICE(pc);
-
-                // Send Answer
-                const callerInbox = doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', targetUid);
-                await setDoc(callerInbox, {
-                    type: 'answer',
-                    fromUid: currentUser.uid,
-                    sdp: JSON.stringify(pc.localDescription),
-                    timestamp: Date.now()
-                });
-            } catch (err) {
-                console.error("Failed to answer", err);
-                endCall();
-            }
-            pendingOfferData = null;
+            setCurrentUser(user);
+          } else {
+            setCurrentUser(null);
+            setUserProfile(null);
+          }
         });
+      } catch (err) {
+        console.error("Firebase Init Error:", err);
+      }
+    };
+    init();
+    return () => { if (unsubscribeAuth) unsubscribeAuth(); };
+  }, []);
 
-        rejectCallBtn.addEventListener('click', async () => {
-            incomingCallOverlay.classList.add('hidden');
-            if (!pendingOfferData) return;
-            
-            // Send reject notice
-            const callerInbox = doc(db, 'artifacts', appId, 'public', 'data', 'inboxes', pendingOfferData.fromUid);
-            await setDoc(callerInbox, {
-                type: 'reject',
-                fromUid: currentUser.uid,
-                fromName: myProfile.name,
-                timestamp: Date.now()
-            });
-            pendingOfferData = null;
-        });
+  // Sync all users and messages
+  useEffect(() => {
+    if (!currentUser || !fbInfo) return;
 
-        // End Call
-        endCallBtn.addEventListener('click', endCall);
+    // Listen for all users to map names/IDs
+    const usersRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'users');
+    const unsubUsers = fbInfo.onSnapshot(usersRef, (snapshot) => {
+      const usersMap = {};
+      snapshot.docs.forEach(doc => {
+        usersMap[doc.id] = doc.data();
+      });
+      setAllUsers(usersMap);
+    });
 
-        function endCall() {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            if (pc) {
-                pc.close();
-                pc = null;
-            }
-            remoteVideo.srcObject = null;
-            localVideo.srcObject = null;
-            currentCallTarget = null;
-            
-            switchView('chat');
-        }
+    // Listen for messages involving current user
+    const messagesRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'messages');
+    const unsubMessages = fbInfo.onSnapshot(messagesRef, (snapshot) => {
+      const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Filter in JS (Rule 2)
+      const myMsgs = allMsgs.filter(m => m.senderId === currentUser.uid || m.receiverId === currentUser.uid);
+      myMsgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      setMessages(myMsgs);
 
-        // Init Sequence
-        initAuth();
+      const contactIds = new Set();
+      myMsgs.forEach(m => {
+        contactIds.add(m.senderId === currentUser.uid ? m.receiverId : m.senderId);
+      });
+      setConversations(Array.from(contactIds).map(uid => ({ uid })));
+    });
 
-    </script>
-</body>
-</html>
+    return () => { unsubUsers(); unsubMessages(); };
+  }, [currentUser, fbInfo]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, activeChat]);
+
+  const handleNexusLogin = async () => {
+    setIsLoggingIn(true);
+    // Simple Nexus Login Implementation
+    // Note: Since we are in a sandbox, we'll simulate the "redirect" 
+    // or use anonymous sign-in as the underlying engine after user accepts
+    try {
+      if (fbInfo) {
+        await fbInfo.signInAnonymously(fbInfo.auth);
+      }
+    } catch (err) {
+      console.error("Login failed", err);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputText.trim() || !activeChat || !fbInfo || !currentUser) return;
+
+    const messagesRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'messages');
+    const newMessage = {
+      text: inputText.trim(),
+      senderId: currentUser.uid,
+      receiverId: activeChat.uid,
+      senderName: userProfile?.displayName || userProfile?.phoneNumber,
+      createdAt: Date.now()
+    };
+
+    setInputText('');
+    try {
+      await fbInfo.addDoc(messagesRef, newMessage);
+    } catch (err) {
+      console.error("Send failed", err);
+    }
+  };
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    if (!tempName.trim() || !fbInfo || !currentUser) return;
+
+    const userRef = fbInfo.doc(fbInfo.db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+    const updated = { ...userProfile, displayName: tempName.trim() };
+    await fbInfo.setDoc(userRef, updated, { merge: true });
+    setUserProfile(updated);
+    setIsProfileModalOpen(false);
+  };
+
+  const startNewChat = (e) => {
+    e.preventDefault();
+    const input = newChatInput.trim();
+    if (!input) return;
+
+    // Check if input matches a username or phone number in our list
+    const foundUser = Object.values(allUsers).find(u => 
+      u.displayName?.toLowerCase() === input.toLowerCase() || 
+      u.phoneNumber === input || 
+      u.uid === input
+    );
+
+    setActiveChat({ uid: foundUser ? foundUser.uid : input });
+    setNewChatInput('');
+    setIsNewChatModalOpen(false);
+  };
+
+  const getDisplayName = (uid) => {
+    const user = allUsers[uid];
+    if (user?.displayName) return user.displayName;
+    if (user?.phoneNumber) return user.phoneNumber;
+    return uid.substring(0, 8);
+  };
+
+  const copyToClipboard = () => {
+    if (!userProfile) return;
+    const val = userProfile.phoneNumber;
+    const el = document.createElement('textarea');
+    el.value = val;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#f8fdff] p-6">
+        <div className="w-20 h-20 bg-[#c2e7ff] rounded-[24px] flex items-center justify-center mb-8 shadow-sm">
+          <MessageSquarePlus className="w-10 h-10 text-[#001d35]" />
+        </div>
+        <h1 className="text-3xl font-medium text-[#191c1e] mb-2">Google Messages</h1>
+        <p className="text-[#43474e] mb-8 text-center max-w-xs">Simple, helpful messaging by Google, integrated with Nexus OS.</p>
+        
+        <button 
+          onClick={handleNexusLogin}
+          disabled={isLoggingIn}
+          className="flex items-center gap-3 bg-[#00639b] hover:bg-[#004a75] text-white px-8 py-4 rounded-full font-medium transition-all shadow-md active:scale-95 disabled:opacity-50"
+        >
+          {isLoggingIn ? "Connecting..." : "Sign in with Nexus"}
+        </button>
+        
+        <div className="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
+          <p>By signing in, you agree to the Terms of Service</p>
+          <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" rel="noreferrer" className="text-[#00639b] hover:underline">
+            Visit Nexus OS
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-white font-sans overflow-hidden text-[#191c1e]">
+      {/* Sidebar */}
+      <div className={`${isMobileView && activeChat ? 'hidden' : 'flex'} flex-col w-full md:w-[360px] lg:w-[400px] h-full bg-[#f8fdff] border-r border-[#e0e2e5]`}>
+        <header className="px-4 py-3 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+             <div className="md:hidden p-2 hover:bg-[#e0e2e5] rounded-full"><Menu className="w-6 h-6" /></div>
+             <h1 className="text-[22px] font-normal">Messages</h1>
+          </div>
+          <div className="flex items-center gap-1">
+            <button className="p-2 hover:bg-[#e0e2e5] rounded-full"><Search className="w-5 h-5" /></button>
+            <button 
+              onClick={() => { setTempName(userProfile?.displayName || ''); setIsProfileModalOpen(true); }}
+              className="w-9 h-9 rounded-full bg-[#00639b] text-white flex items-center justify-center text-sm font-bold ml-1 hover:opacity-90 overflow-hidden"
+            >
+              {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : <User className="w-5 h-5" />}
+            </button>
+          </div>
+        </header>
+
+        <div className="px-4 py-4">
+          <button 
+            onClick={() => setIsNewChatModalOpen(true)}
+            className="flex items-center gap-4 bg-[#c2e7ff] hover:bg-[#b1d9f0] transition-colors text-[#001d35] px-6 py-4 rounded-[28px] w-full shadow-sm"
+          >
+            <MessageSquarePlus className="w-6 h-6" />
+            <span className="font-medium">Start chat</span>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-1">
+          {conversations.length === 0 ? (
+            <div className="px-8 py-12 text-center text-[#43474e]">
+              <div className="bg-[#e0e2e5] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Smile className="w-8 h-8 opacity-50" />
+              </div>
+              <p className="font-medium">No conversations yet</p>
+              <p className="text-sm mt-1">Start a new chat using a name or phone number.</p>
+            </div>
+          ) : (
+            conversations.map((conv) => {
+              const lastMsg = messages.filter(m => m.senderId === conv.uid || m.receiverId === conv.uid).slice(-1)[0];
+              const isSelected = activeChat?.uid === conv.uid;
+              const contact = allUsers[conv.uid];
+              
+              return (
+                <div 
+                  key={conv.uid}
+                  onClick={() => setActiveChat(conv)}
+                  className={`flex items-center gap-4 px-4 py-3 cursor-pointer mx-2 rounded-[24px] transition-colors ${isSelected ? 'bg-[#c2e7ff]' : 'hover:bg-[#e0e2e5]'}`}
+                >
+                  <div className="w-14 h-14 rounded-full bg-[#e0e2e5] flex items-center justify-center shrink-0 overflow-hidden border-2 border-white">
+                    {contact?.displayName ? (
+                      <span className="text-xl font-bold text-[#43474e]">{contact.displayName[0].toUpperCase()}</span>
+                    ) : (
+                      <UserCircle2 className="w-10 h-10 text-[#43474e]" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <h3 className="font-medium truncate">{getDisplayName(conv.uid)}</h3>
+                      {lastMsg && <span className="text-xs text-[#73777f]">{new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                    </div>
+                    <p className={`text-sm truncate ${isSelected ? 'text-[#001d35]' : 'text-[#43474e]'}`}>
+                      {lastMsg ? lastMsg.text : "Draft"}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="p-4 border-t border-[#e0e2e5] bg-white/50">
+          <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-[#e0e2e5]">
+             <div className="flex flex-col">
+               <span className="text-[10px] uppercase tracking-wider font-bold text-[#73777f]">My Identity</span>
+               <span className="text-sm font-mono text-[#00639b]">{userProfile?.phoneNumber}</span>
+             </div>
+             <button onClick={copyToClipboard} className="p-2 hover:bg-[#f1f3f4] rounded-full text-[#00639b]">
+               {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chat View */}
+      <div className={`${isMobileView && !activeChat ? 'hidden' : 'flex'} flex-1 flex-col h-full bg-[#f8fdff]`}>
+        {!activeChat ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+            <div className="bg-[#c2e7ff] p-10 rounded-[40px] mb-8 shadow-sm">
+              <MessageSquarePlus className="w-20 h-20 text-[#001d35]" />
+            </div>
+            <h2 className="text-[32px] font-normal mb-3">Select a chat to start messaging</h2>
+            <p className="text-[#43474e] max-w-sm mb-8">Google Messages syncs with your Nexus OS account for a seamless experience across devices.</p>
+            <div className="flex flex-col gap-2">
+               <span className="text-sm font-medium text-[#73777f]">LOGGED IN AS</span>
+               <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-full border border-[#e0e2e5] shadow-sm">
+                  <div className="w-8 h-8 rounded-full bg-[#00639b] text-white flex items-center justify-center text-xs font-bold">
+                    {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : "?"}
+                  </div>
+                  <span className="font-medium">{userProfile?.displayName || "Anonymous User"}</span>
+               </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <header className="flex items-center justify-between px-4 py-2 border-b border-[#e0e2e5] bg-white h-[72px] shrink-0 z-10">
+              <div className="flex items-center gap-2">
+                {isMobileView && (
+                  <button onClick={() => setActiveChat(null)} className="p-2 rounded-full hover:bg-[#e0e2e5] mr-1">
+                    <ArrowLeft className="w-6 h-6" />
+                  </button>
+                )}
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full bg-[#e0e2e5] flex items-center justify-center overflow-hidden border border-[#f1f3f4]">
+                    {allUsers[activeChat.uid]?.displayName ? (
+                      <span className="text-lg font-bold text-[#43474e]">{allUsers[activeChat.uid].displayName[0].toUpperCase()}</span>
+                    ) : (
+                      <UserCircle2 className="w-8 h-8 text-[#43474e]" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-[#191c1e] font-medium text-lg leading-tight">{getDisplayName(activeChat.uid)}</h2>
+                    <p className="text-[11px] text-[#73777f] font-mono">{allUsers[activeChat.uid]?.phoneNumber || "Nexus User"}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><Video className="w-5 h-5" /></button>
+                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><Phone className="w-5 h-5" /></button>
+                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><MoreVertical className="w-5 h-5" /></button>
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-1.5 scroll-smooth">
+              {messages
+                .filter(m => m.senderId === activeChat.uid || m.receiverId === activeChat.uid)
+                .map((msg, idx, arr) => {
+                  const isMe = msg.senderId === currentUser.uid;
+                  const isFirstInGroup = idx === 0 || arr[idx-1].senderId !== msg.senderId;
+                  const isLastInGroup = idx === arr.length - 1 || arr[idx+1].senderId !== msg.senderId;
+                  
+                  return (
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isFirstInGroup ? 'mt-4' : 'mt-0'}`}>
+                      {isFirstInGroup && !isMe && (
+                         <span className="text-[11px] font-medium text-[#73777f] ml-12 mb-1 uppercase tracking-tighter">
+                           {msg.senderName || "Unknown"}
+                         </span>
+                      )}
+                      <div className="flex items-end gap-2 max-w-[85%] group">
+                        {!isMe && isLastInGroup && (
+                           <div className="w-8 h-8 rounded-full bg-[#e0e2e5] flex items-center justify-center overflow-hidden shrink-0">
+                              {allUsers[msg.senderId]?.displayName ? (
+                                <span className="text-xs font-bold">{allUsers[msg.senderId].displayName[0]}</span>
+                              ) : <User className="w-4 h-4" />}
+                           </div>
+                        )}
+                        {!isMe && !isLastInGroup && <div className="w-8 shrink-0" />}
+                        
+                        <div 
+                          className={`px-4 py-3 text-[15px] shadow-sm relative ${
+                            isMe 
+                            ? 'bg-[#00639b] text-white rounded-[20px] rounded-tr-none' 
+                            : 'bg-[#e0e2e5] text-[#191c1e] rounded-[20px] rounded-tl-none'
+                          }`}
+                        >
+                          {msg.text}
+                          <span className={`text-[9px] block mt-1 opacity-60 ${isMe ? 'text-right' : 'text-left'}`}>
+                             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div className="p-4 bg-[#f8fdff]">
+              <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-[#f0f4f8] rounded-[28px] p-1.5 shadow-sm border border-[#e0e2e5] focus-within:border-[#00639b] focus-within:bg-white transition-all">
+                <button type="button" className="p-3 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><PlusCircle className="w-6 h-6" /></button>
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="RCS message"
+                  className="flex-1 bg-transparent border-none outline-none py-3 px-2 text-[#191c1e] resize-none max-h-32 text-base"
+                  rows={1}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
+                />
+                <div className="flex gap-1 p-1">
+                   <button type="button" className="p-2.5 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><Smile className="w-6 h-6" /></button>
+                   <button 
+                     type="submit" 
+                     disabled={!inputText.trim()} 
+                     className={`p-2.5 rounded-full transition-all ${inputText.trim() ? 'bg-[#00639b] text-white shadow-md active:scale-90' : 'text-[#73777f]'}`}
+                   >
+                    <Send className="w-6 h-6" />
+                  </button>
+                </div>
+              </form>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* User Profile Creation Modal */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl p-8 transform animate-in slide-in-from-bottom-4 duration-500">
+            <div className="w-16 h-16 bg-[#c2e7ff] rounded-full flex items-center justify-center mb-6 mx-auto">
+              <UserCircle2 className="w-10 h-10 text-[#001d35]" />
+            </div>
+            <h2 className="text-2xl font-medium text-[#191c1e] mb-2 text-center">Complete your profile</h2>
+            <p className="text-sm text-[#43474e] text-center mb-8">Set a display name so your friends know who's messaging them.</p>
+            <form onSubmit={saveProfile}>
+              <div className="group mb-6">
+                <label className="text-xs font-bold text-[#00639b] ml-1 mb-1 block uppercase tracking-wider">Display Name</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full bg-[#f0f4f8] border-b-2 border-transparent focus:border-[#00639b] rounded-t-xl py-4 px-4 text-lg text-[#191c1e] outline-none transition-all"
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={!tempName.trim()}
+                className="w-full bg-[#00639b] text-white font-medium py-4 rounded-full disabled:opacity-50 transition-all hover:shadow-lg active:scale-95"
+              >
+                Continue to Messages
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* New Chat Modal */}
+      {isNewChatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-[28px] w-full max-w-md overflow-hidden shadow-2xl p-6 animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-medium">New conversation</h2>
+              <button onClick={() => setIsNewChatModalOpen(false)} className="p-2 hover:bg-[#f1f3f4] rounded-full"><X className="w-6 h-6" /></button>
+            </div>
+            <form onSubmit={startNewChat}>
+              <div className="mb-4">
+                <input
+                  autoFocus
+                  type="text"
+                  value={newChatInput}
+                  onChange={(e) => setNewChatInput(e.target.value)}
+                  placeholder="Type a name, number, or ID"
+                  className="w-full bg-[#f1f3f4] border-none rounded-2xl py-4 px-5 text-lg outline-none focus:ring-2 focus:ring-[#00639b] transition-all"
+                />
+              </div>
+              
+              <div className="mb-8">
+                 <p className="text-xs font-bold text-[#73777f] mb-3 uppercase tracking-widest ml-1">Suggested Contacts</p>
+                 <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {Object.values(allUsers)
+                      .filter(u => u.uid !== currentUser.uid)
+                      .slice(0, 5)
+                      .map(u => (
+                        <div 
+                          key={u.uid} 
+                          onClick={() => { setActiveChat({ uid: u.uid }); setIsNewChatModalOpen(false); }}
+                          className="flex items-center gap-3 p-3 hover:bg-[#f1f3f4] rounded-xl cursor-pointer transition-colors"
+                        >
+                           <div className="w-10 h-10 rounded-full bg-[#e0e2e5] flex items-center justify-center text-sm font-bold">
+                              {u.displayName ? u.displayName[0] : "?"}
+                           </div>
+                           <div className="flex flex-col">
+                              <span className="font-medium text-sm">{u.displayName || "Unknown User"}</span>
+                              <span className="text-[10px] text-[#73777f] font-mono">{u.phoneNumber}</span>
+                           </div>
+                        </div>
+                      ))}
+                 </div>
+              </div>
+
+              <button 
+                type="submit"
+                disabled={!newChatInput.trim()}
+                className="w-full bg-[#00639b] text-white font-medium py-4 rounded-full disabled:opacity-50 transition-all shadow-md active:scale-95"
+              >
+                Start Chat
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
