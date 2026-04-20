@@ -56,7 +56,7 @@
                 <!-- Footer -->
                 <div class="mt-[72px] text-[13px] text-[#73777f] flex flex-col items-center gap-2 opacity-80">
                     <p>By signing in, you agree to the Terms of Service</p>
-                    <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" class="text-[#00639b] hover:underline">Visit Nexus OS</a>
+                    <a href="javascript:void(0)" onclick="handleNexusRedirect()" class="text-[#00639b] hover:underline">Visit Nexus OS</a>
                 </div>
             </div>
 
@@ -221,8 +221,14 @@
 
         // Nexus OS Integration Logic
         window.handleNexusRedirect = () => {
-            // Redirect to Nexus OS for authentication
-            window.location.href = "https://bex-creator.github.io/Nexus-OS/index.html";
+            if (window !== window.parent) {
+                // If running inside an iframe (Nexus OS), send a message to the parent OS
+                // so it can handle the login natively without opening a new tab!
+                window.parent.postMessage({ type: 'NEXUS_AUTH_REQUEST' }, '*');
+            } else {
+                // Not in an iframe, redirect in the current window normally
+                window.location.href = "https://bex-creator.github.io/Nexus-OS/index.html";
+            }
         };
 
         // Initialize session
@@ -240,7 +246,10 @@
             } else if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token);
             } else {
-                // If no token yet, wait for user to click login and redirect
+                // To trigger it initially:
+                if (window !== window.parent) {
+                    window.parent.postMessage({ type: 'NEXUS_AUTH_REQUEST' }, '*');
+                }
             }
         };
 
@@ -301,6 +310,25 @@
             document.getElementById('sidebar').classList.remove('hidden');
         };
 
+        // Inside your Chat App codebase
+        window.addEventListener('message', async (event) => {
+            if (event.data && event.data.type === 'NEXUS_AUTH_SUCCESS') {
+                const username = event.data.user.username;
+                const profilePic = event.data.user.photo;
+                console.log("Logged in via Nexus OS as:", username);
+                
+                window.pendingNexusUser = { username, profilePic };
+                
+                // Continue logging them into the chat...
+                document.getElementById('login-btn').innerText = "Authenticating...";
+                try {
+                    await signInAnonymously(auth);
+                } catch (e) {
+                    console.error("Firebase auth error:", e);
+                }
+            }
+        });
+
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
@@ -310,17 +338,26 @@
                 const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
                 const snap = await getDoc(userRef);
                 
+                let nexusName = window.pendingNexusUser ? window.pendingNexusUser.username : '';
+                let nexusPhoto = window.pendingNexusUser ? window.pendingNexusUser.profilePic : '';
+                
                 if (snap.exists()) {
                     userProfile = snap.data();
+                    if (nexusName && userProfile.displayName !== nexusName) {
+                        userProfile.displayName = nexusName;
+                        userProfile.photoUrl = nexusPhoto;
+                        await setDoc(userRef, userProfile, { merge: true });
+                    }
                     if (!userProfile.displayName) openProfileModal();
                 } else {
                     userProfile = { 
                         uid: user.uid, 
-                        displayName: '', 
-                        phoneNumber: `NEXUS-${user.uid.substring(0, 4).toUpperCase()}` 
+                        displayName: nexusName || '', 
+                        phoneNumber: `NEXUS-${user.uid.substring(0, 4).toUpperCase()}`,
+                        photoUrl: nexusPhoto || ''
                     };
                     await setDoc(userRef, userProfile);
-                    openProfileModal();
+                    if (!userProfile.displayName) openProfileModal();
                 }
                 
                 document.getElementById('my-phone-number').innerText = userProfile.phoneNumber;
