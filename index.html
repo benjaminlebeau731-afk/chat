@@ -1,564 +1,343 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Search,
-  Menu,
-  MoreVertical,
-  Phone,
-  Video,
-  Smile,
-  PlusCircle,
-  Image as ImageIcon,
-  Send,
-  UserCircle2,
-  Mic,
-  MessageSquarePlus,
-  ArrowLeft,
-  X,
-  Copy,
-  Check,
-  User,
-  LogOut
-} from 'lucide-react';
-
-// --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyC6fcHsdtBCHLWDLKm9yIJokgeoll0i7c0",
-  authDomain: "os-chat-and-phone.firebaseapp.com",
-  projectId: "os-chat-and-phone",
-  storageBucket: "os-chat-and-phone.firebasestorage.app",
-  messagingSenderId: "177525708536",
-  appId: "1:177525708536:web:0238d2be8837452a214d0d",
-  measurementId: "G-SBKNFS2LRE"
-};
-
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'google-messages-clone';
-
-const loadFirebase = async () => {
-  if (window.firebaseApp) return window.firebaseApp;
-  const { initializeApp } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js');
-  const { getAuth, signInAnonymously, onAuthStateChanged, signOut } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js');
-  const { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, where } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
-  
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  
-  window.firebaseApp = { app, auth, db, signInAnonymously, onAuthStateChanged, signOut, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, where };
-  return window.firebaseApp;
-};
-
-export default function App() {
-  const [fbInfo, setFbInfo] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [allUsers, setAllUsers] = useState({});
-  const [conversations, setConversations] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [activeChat, setActiveChat] = useState(null);
-  const [inputText, setInputText] = useState('');
-  const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
-  const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
-  const [newChatInput, setNewChatInput] = useState('');
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [tempName, setTempName] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  
-  const messagesEndRef = useRef(null);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobileView(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Initialization and Auth Listener
-  useEffect(() => {
-    let unsubscribeAuth;
-    const init = async () => {
-      try {
-        const fb = await loadFirebase();
-        setFbInfo(fb);
-        
-        unsubscribeAuth = fb.onAuthStateChanged(fb.auth, async (user) => {
-          if (user) {
-            const userRef = fb.doc(fb.db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
-            const userSnap = await fb.getDoc(userRef);
-            
-            if (userSnap.exists()) {
-              const data = userSnap.data();
-              setUserProfile(data);
-              if (!data.displayName) setIsProfileModalOpen(true);
-            } else {
-              // Create default profile for first time users
-              const shortId = user.uid.substring(0, 6).toUpperCase();
-              const newData = { 
-                uid: user.uid, 
-                displayName: '', 
-                phoneNumber: `MSG-${shortId}`,
-                createdAt: Date.now() 
-              };
-              await fb.setDoc(userRef, newData);
-              setUserProfile(newData);
-              setIsProfileModalOpen(true);
-            }
-            setCurrentUser(user);
-          } else {
-            setCurrentUser(null);
-            setUserProfile(null);
-          }
-        });
-      } catch (err) {
-        console.error("Firebase Init Error:", err);
-      }
-    };
-    init();
-    return () => { if (unsubscribeAuth) unsubscribeAuth(); };
-  }, []);
-
-  // Sync all users and messages
-  useEffect(() => {
-    if (!currentUser || !fbInfo) return;
-
-    // Listen for all users to map names/IDs
-    const usersRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'users');
-    const unsubUsers = fbInfo.onSnapshot(usersRef, (snapshot) => {
-      const usersMap = {};
-      snapshot.docs.forEach(doc => {
-        usersMap[doc.id] = doc.data();
-      });
-      setAllUsers(usersMap);
-    });
-
-    // Listen for messages involving current user
-    const messagesRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'messages');
-    const unsubMessages = fbInfo.onSnapshot(messagesRef, (snapshot) => {
-      const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Filter in JS (Rule 2)
-      const myMsgs = allMsgs.filter(m => m.senderId === currentUser.uid || m.receiverId === currentUser.uid);
-      myMsgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      setMessages(myMsgs);
-
-      const contactIds = new Set();
-      myMsgs.forEach(m => {
-        contactIds.add(m.senderId === currentUser.uid ? m.receiverId : m.senderId);
-      });
-      setConversations(Array.from(contactIds).map(uid => ({ uid })));
-    });
-
-    return () => { unsubUsers(); unsubMessages(); };
-  }, [currentUser, fbInfo]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, activeChat]);
-
-  const handleNexusLogin = async () => {
-    setIsLoggingIn(true);
-    // Simple Nexus Login Implementation
-    // Note: Since we are in a sandbox, we'll simulate the "redirect" 
-    // or use anonymous sign-in as the underlying engine after user accepts
-    try {
-      if (fbInfo) {
-        await fbInfo.signInAnonymously(fbInfo.auth);
-      }
-    } catch (err) {
-      console.error("Login failed", err);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputText.trim() || !activeChat || !fbInfo || !currentUser) return;
-
-    const messagesRef = fbInfo.collection(fbInfo.db, 'artifacts', appId, 'public', 'data', 'messages');
-    const newMessage = {
-      text: inputText.trim(),
-      senderId: currentUser.uid,
-      receiverId: activeChat.uid,
-      senderName: userProfile?.displayName || userProfile?.phoneNumber,
-      createdAt: Date.now()
-    };
-
-    setInputText('');
-    try {
-      await fbInfo.addDoc(messagesRef, newMessage);
-    } catch (err) {
-      console.error("Send failed", err);
-    }
-  };
-
-  const saveProfile = async (e) => {
-    e.preventDefault();
-    if (!tempName.trim() || !fbInfo || !currentUser) return;
-
-    const userRef = fbInfo.doc(fbInfo.db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
-    const updated = { ...userProfile, displayName: tempName.trim() };
-    await fbInfo.setDoc(userRef, updated, { merge: true });
-    setUserProfile(updated);
-    setIsProfileModalOpen(false);
-  };
-
-  const startNewChat = (e) => {
-    e.preventDefault();
-    const input = newChatInput.trim();
-    if (!input) return;
-
-    // Check if input matches a username or phone number in our list
-    const foundUser = Object.values(allUsers).find(u => 
-      u.displayName?.toLowerCase() === input.toLowerCase() || 
-      u.phoneNumber === input || 
-      u.uid === input
-    );
-
-    setActiveChat({ uid: foundUser ? foundUser.uid : input });
-    setNewChatInput('');
-    setIsNewChatModalOpen(false);
-  };
-
-  const getDisplayName = (uid) => {
-    const user = allUsers[uid];
-    if (user?.displayName) return user.displayName;
-    if (user?.phoneNumber) return user.phoneNumber;
-    return uid.substring(0, 8);
-  };
-
-  const copyToClipboard = () => {
-    if (!userProfile) return;
-    const val = userProfile.phoneNumber;
-    const el = document.createElement('textarea');
-    el.value = val;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  if (!currentUser) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#f8fdff] p-6">
-        <div className="w-20 h-20 bg-[#c2e7ff] rounded-[24px] flex items-center justify-center mb-8 shadow-sm">
-          <MessageSquarePlus className="w-10 h-10 text-[#001d35]" />
-        </div>
-        <h1 className="text-3xl font-medium text-[#191c1e] mb-2">Google Messages</h1>
-        <p className="text-[#43474e] mb-8 text-center max-w-xs">Simple, helpful messaging by Google, integrated with Nexus OS.</p>
-        
-        <button 
-          onClick={handleNexusLogin}
-          disabled={isLoggingIn}
-          className="flex items-center gap-3 bg-[#00639b] hover:bg-[#004a75] text-white px-8 py-4 rounded-full font-medium transition-all shadow-md active:scale-95 disabled:opacity-50"
-        >
-          {isLoggingIn ? "Connecting..." : "Sign in with Nexus"}
-        </button>
-        
-        <div className="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
-          <p>By signing in, you agree to the Terms of Service</p>
-          <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" rel="noreferrer" className="text-[#00639b] hover:underline">
-            Visit Nexus OS
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-screen bg-white font-sans overflow-hidden text-[#191c1e]">
-      {/* Sidebar */}
-      <div className={`${isMobileView && activeChat ? 'hidden' : 'flex'} flex-col w-full md:w-[360px] lg:w-[400px] h-full bg-[#f8fdff] border-r border-[#e0e2e5]`}>
-        <header className="px-4 py-3 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-             <div className="md:hidden p-2 hover:bg-[#e0e2e5] rounded-full"><Menu className="w-6 h-6" /></div>
-             <h1 className="text-[22px] font-normal">Messages</h1>
-          </div>
-          <div className="flex items-center gap-1">
-            <button className="p-2 hover:bg-[#e0e2e5] rounded-full"><Search className="w-5 h-5" /></button>
-            <button 
-              onClick={() => { setTempName(userProfile?.displayName || ''); setIsProfileModalOpen(true); }}
-              className="w-9 h-9 rounded-full bg-[#00639b] text-white flex items-center justify-center text-sm font-bold ml-1 hover:opacity-90 overflow-hidden"
-            >
-              {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : <User className="w-5 h-5" />}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Messages</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Google Sans', 'Roboto', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .message-bubble { border-radius: 20px; transition: all 0.2s ease; }
+        .active-chat { background-color: #c2e7ff !important; }
+        .nexus-bg { background: linear-gradient(135deg, #f8fdff 0%, #e8f0fe 100%); }
+    </style>
+</head>
+<body class="bg-white overflow-hidden">
+    <div id="app" class="h-screen flex flex-col md:flex-row">
+        <!-- Landing / Login Screen -->
+        <div id="login-screen" class="flex flex-col items-center justify-center w-full h-full nexus-bg p-6">
+            <div class="w-20 h-20 bg-[#c2e7ff] rounded-[24px] flex items-center justify-center mb-8 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+            </div>
+            <h1 class="text-3xl font-medium text-[#191c1e] mb-2 text-center">Google Messages</h1>
+            <p class="text-[#43474e] mb-8 text-center max-w-xs">Simple, helpful messaging by Google, integrated with Nexus OS.</p>
+            <button onclick="handleLogin()" id="login-btn" class="flex items-center gap-3 bg-[#00639b] hover:bg-[#004a75] text-white px-8 py-4 rounded-full font-medium transition-all shadow-md active:scale-95">
+                Sign in with Nexus
             </button>
-          </div>
-        </header>
-
-        <div className="px-4 py-4">
-          <button 
-            onClick={() => setIsNewChatModalOpen(true)}
-            className="flex items-center gap-4 bg-[#c2e7ff] hover:bg-[#b1d9f0] transition-colors text-[#001d35] px-6 py-4 rounded-[28px] w-full shadow-sm"
-          >
-            <MessageSquarePlus className="w-6 h-6" />
-            <span className="font-medium">Start chat</span>
-          </button>
+            <div class="mt-12 text-xs text-[#73777f] flex flex-col items-center gap-2">
+                <p>By signing in, you agree to the Terms of Service</p>
+                <a href="https://bex-creator.github.io/Nexus-OS/index.html" target="_blank" class="text-[#00639b] hover:underline">Visit Nexus OS</a>
+            </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-1">
-          {conversations.length === 0 ? (
-            <div className="px-8 py-12 text-center text-[#43474e]">
-              <div className="bg-[#e0e2e5] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Smile className="w-8 h-8 opacity-50" />
-              </div>
-              <p className="font-medium">No conversations yet</p>
-              <p className="text-sm mt-1">Start a new chat using a name or phone number.</p>
-            </div>
-          ) : (
-            conversations.map((conv) => {
-              const lastMsg = messages.filter(m => m.senderId === conv.uid || m.receiverId === conv.uid).slice(-1)[0];
-              const isSelected = activeChat?.uid === conv.uid;
-              const contact = allUsers[conv.uid];
-              
-              return (
-                <div 
-                  key={conv.uid}
-                  onClick={() => setActiveChat(conv)}
-                  className={`flex items-center gap-4 px-4 py-3 cursor-pointer mx-2 rounded-[24px] transition-colors ${isSelected ? 'bg-[#c2e7ff]' : 'hover:bg-[#e0e2e5]'}`}
-                >
-                  <div className="w-14 h-14 rounded-full bg-[#e0e2e5] flex items-center justify-center shrink-0 overflow-hidden border-2 border-white">
-                    {contact?.displayName ? (
-                      <span className="text-xl font-bold text-[#43474e]">{contact.displayName[0].toUpperCase()}</span>
-                    ) : (
-                      <UserCircle2 className="w-10 h-10 text-[#43474e]" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-baseline mb-0.5">
-                      <h3 className="font-medium truncate">{getDisplayName(conv.uid)}</h3>
-                      {lastMsg && <span className="text-xs text-[#73777f]">{new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+        <!-- Main App Interface (Hidden by default) -->
+        <div id="main-interface" class="hidden w-full h-full flex flex-row overflow-hidden">
+            <!-- Sidebar -->
+            <div id="sidebar" class="flex flex-col w-full md:w-[360px] lg:w-[400px] h-full bg-[#f8fdff] border-r border-[#e0e2e5]">
+                <header class="px-4 py-3 flex items-center justify-between bg-white/80 backdrop-blur-md">
+                    <h1 class="text-[22px] font-normal">Messages</h1>
+                    <div class="flex items-center gap-2">
+                        <button class="p-2 hover:bg-[#e0e2e5] rounded-full"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+                        <button onclick="openProfileModal()" id="profile-btn" class="w-9 h-9 rounded-full bg-[#00639b] text-white flex items-center justify-center text-sm font-bold overflow-hidden">
+                            ?
+                        </button>
                     </div>
-                    <p className={`text-sm truncate ${isSelected ? 'text-[#001d35]' : 'text-[#43474e]'}`}>
-                      {lastMsg ? lastMsg.text : "Draft"}
-                    </p>
-                  </div>
+                </header>
+
+                <div class="px-4 py-4">
+                    <button onclick="openNewChatModal()" class="flex items-center gap-4 bg-[#c2e7ff] hover:bg-[#b1d9f0] transition-colors text-[#001d35] px-6 py-4 rounded-[28px] w-full shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+                        <span class="font-medium">Start chat</span>
+                    </button>
                 </div>
-              );
-            })
-          )}
-        </div>
 
-        <div className="p-4 border-t border-[#e0e2e5] bg-white/50">
-          <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-[#e0e2e5]">
-             <div className="flex flex-col">
-               <span className="text-[10px] uppercase tracking-wider font-bold text-[#73777f]">My Identity</span>
-               <span className="text-sm font-mono text-[#00639b]">{userProfile?.phoneNumber}</span>
-             </div>
-             <button onClick={copyToClipboard} className="p-2 hover:bg-[#f1f3f4] rounded-full text-[#00639b]">
-               {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Chat View */}
-      <div className={`${isMobileView && !activeChat ? 'hidden' : 'flex'} flex-1 flex-col h-full bg-[#f8fdff]`}>
-        {!activeChat ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-            <div className="bg-[#c2e7ff] p-10 rounded-[40px] mb-8 shadow-sm">
-              <MessageSquarePlus className="w-20 h-20 text-[#001d35]" />
-            </div>
-            <h2 className="text-[32px] font-normal mb-3">Select a chat to start messaging</h2>
-            <p className="text-[#43474e] max-w-sm mb-8">Google Messages syncs with your Nexus OS account for a seamless experience across devices.</p>
-            <div className="flex flex-col gap-2">
-               <span className="text-sm font-medium text-[#73777f]">LOGGED IN AS</span>
-               <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-full border border-[#e0e2e5] shadow-sm">
-                  <div className="w-8 h-8 rounded-full bg-[#00639b] text-white flex items-center justify-center text-xs font-bold">
-                    {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : "?"}
-                  </div>
-                  <span className="font-medium">{userProfile?.displayName || "Anonymous User"}</span>
-               </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            <header className="flex items-center justify-between px-4 py-2 border-b border-[#e0e2e5] bg-white h-[72px] shrink-0 z-10">
-              <div className="flex items-center gap-2">
-                {isMobileView && (
-                  <button onClick={() => setActiveChat(null)} className="p-2 rounded-full hover:bg-[#e0e2e5] mr-1">
-                    <ArrowLeft className="w-6 h-6" />
-                  </button>
-                )}
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#e0e2e5] flex items-center justify-center overflow-hidden border border-[#f1f3f4]">
-                    {allUsers[activeChat.uid]?.displayName ? (
-                      <span className="text-lg font-bold text-[#43474e]">{allUsers[activeChat.uid].displayName[0].toUpperCase()}</span>
-                    ) : (
-                      <UserCircle2 className="w-8 h-8 text-[#43474e]" />
-                    )}
-                  </div>
-                  <div>
-                    <h2 className="text-[#191c1e] font-medium text-lg leading-tight">{getDisplayName(activeChat.uid)}</h2>
-                    <p className="text-[11px] text-[#73777f] font-mono">{allUsers[activeChat.uid]?.phoneNumber || "Nexus User"}</p>
-                  </div>
+                <div id="conversations-list" class="flex-1 overflow-y-auto space-y-1">
+                    <!-- Conversations will be injected here -->
                 </div>
-              </div>
-              <div className="flex gap-1">
-                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><Video className="w-5 h-5" /></button>
-                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><Phone className="w-5 h-5" /></button>
-                <button className="p-3 rounded-full hover:bg-[#f1f3f4]"><MoreVertical className="w-5 h-5" /></button>
-              </div>
-            </header>
 
-            <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-1.5 scroll-smooth">
-              {messages
-                .filter(m => m.senderId === activeChat.uid || m.receiverId === activeChat.uid)
-                .map((msg, idx, arr) => {
-                  const isMe = msg.senderId === currentUser.uid;
-                  const isFirstInGroup = idx === 0 || arr[idx-1].senderId !== msg.senderId;
-                  const isLastInGroup = idx === arr.length - 1 || arr[idx+1].senderId !== msg.senderId;
-                  
-                  return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isFirstInGroup ? 'mt-4' : 'mt-0'}`}>
-                      {isFirstInGroup && !isMe && (
-                         <span className="text-[11px] font-medium text-[#73777f] ml-12 mb-1 uppercase tracking-tighter">
-                           {msg.senderName || "Unknown"}
-                         </span>
-                      )}
-                      <div className="flex items-end gap-2 max-w-[85%] group">
-                        {!isMe && isLastInGroup && (
-                           <div className="w-8 h-8 rounded-full bg-[#e0e2e5] flex items-center justify-center overflow-hidden shrink-0">
-                              {allUsers[msg.senderId]?.displayName ? (
-                                <span className="text-xs font-bold">{allUsers[msg.senderId].displayName[0]}</span>
-                              ) : <User className="w-4 h-4" />}
-                           </div>
-                        )}
-                        {!isMe && !isLastInGroup && <div className="w-8 shrink-0" />}
-                        
-                        <div 
-                          className={`px-4 py-3 text-[15px] shadow-sm relative ${
-                            isMe 
-                            ? 'bg-[#00639b] text-white rounded-[20px] rounded-tr-none' 
-                            : 'bg-[#e0e2e5] text-[#191c1e] rounded-[20px] rounded-tl-none'
-                          }`}
-                        >
-                          {msg.text}
-                          <span className={`text-[9px] block mt-1 opacity-60 ${isMe ? 'text-right' : 'text-left'}`}>
-                             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                <div class="p-4 border-t border-[#e0e2e5] bg-white">
+                    <div class="flex items-center justify-between p-3 bg-white rounded-2xl border border-[#e0e2e5]">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] uppercase font-bold text-[#73777f]">My ID</span>
+                            <span id="my-phone-number" class="text-sm font-mono text-[#00639b]">Loading...</span>
                         </div>
-                      </div>
+                        <button onclick="copyMyNumber()" class="p-2 hover:bg-[#f1f3f4] rounded-full text-[#00639b]">
+                            <svg id="copy-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        </button>
                     </div>
-                  );
-                })}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="p-4 bg-[#f8fdff]">
-              <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-[#f0f4f8] rounded-[28px] p-1.5 shadow-sm border border-[#e0e2e5] focus-within:border-[#00639b] focus-within:bg-white transition-all">
-                <button type="button" className="p-3 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><PlusCircle className="w-6 h-6" /></button>
-                <textarea
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  placeholder="RCS message"
-                  className="flex-1 bg-transparent border-none outline-none py-3 px-2 text-[#191c1e] resize-none max-h-32 text-base"
-                  rows={1}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
-                />
-                <div className="flex gap-1 p-1">
-                   <button type="button" className="p-2.5 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><Smile className="w-6 h-6" /></button>
-                   <button 
-                     type="submit" 
-                     disabled={!inputText.trim()} 
-                     className={`p-2.5 rounded-full transition-all ${inputText.trim() ? 'bg-[#00639b] text-white shadow-md active:scale-90' : 'text-[#73777f]'}`}
-                   >
-                    <Send className="w-6 h-6" />
-                  </button>
                 </div>
-              </form>
             </div>
-          </>
-        )}
-      </div>
 
-      {/* User Profile Creation Modal */}
-      {isProfileModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div className="bg-white rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl p-8 transform animate-in slide-in-from-bottom-4 duration-500">
-            <div className="w-16 h-16 bg-[#c2e7ff] rounded-full flex items-center justify-center mb-6 mx-auto">
-              <UserCircle2 className="w-10 h-10 text-[#001d35]" />
-            </div>
-            <h2 className="text-2xl font-medium text-[#191c1e] mb-2 text-center">Complete your profile</h2>
-            <p className="text-sm text-[#43474e] text-center mb-8">Set a display name so your friends know who's messaging them.</p>
-            <form onSubmit={saveProfile}>
-              <div className="group mb-6">
-                <label className="text-xs font-bold text-[#00639b] ml-1 mb-1 block uppercase tracking-wider">Display Name</label>
-                <input
-                  autoFocus
-                  type="text"
-                  value={tempName}
-                  onChange={(e) => setTempName(e.target.value)}
-                  placeholder="e.g. John Doe"
-                  className="w-full bg-[#f0f4f8] border-b-2 border-transparent focus:border-[#00639b] rounded-t-xl py-4 px-4 text-lg text-[#191c1e] outline-none transition-all"
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={!tempName.trim()}
-                className="w-full bg-[#00639b] text-white font-medium py-4 rounded-full disabled:opacity-50 transition-all hover:shadow-lg active:scale-95"
-              >
-                Continue to Messages
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+            <!-- Chat Content -->
+            <div id="chat-window" class="hidden md:flex flex-1 flex-col h-full bg-[#f8fdff] relative">
+                <!-- Welcome State -->
+                <div id="welcome-state" class="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                    <div class="bg-[#c2e7ff] p-10 rounded-[40px] mb-8 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#001d35" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+                    </div>
+                    <h2 class="text-[32px] font-normal mb-3">Select a chat to start</h2>
+                    <p class="text-[#43474e] max-w-sm">Messaging synced with Nexus OS.</p>
+                </div>
 
-      {/* New Chat Modal */}
-      {isNewChatModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-[28px] w-full max-w-md overflow-hidden shadow-2xl p-6 animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-medium">New conversation</h2>
-              <button onClick={() => setIsNewChatModalOpen(false)} className="p-2 hover:bg-[#f1f3f4] rounded-full"><X className="w-6 h-6" /></button>
-            </div>
-            <form onSubmit={startNewChat}>
-              <div className="mb-4">
-                <input
-                  autoFocus
-                  type="text"
-                  value={newChatInput}
-                  onChange={(e) => setNewChatInput(e.target.value)}
-                  placeholder="Type a name, number, or ID"
-                  className="w-full bg-[#f1f3f4] border-none rounded-2xl py-4 px-5 text-lg outline-none focus:ring-2 focus:ring-[#00639b] transition-all"
-                />
-              </div>
-              
-              <div className="mb-8">
-                 <p className="text-xs font-bold text-[#73777f] mb-3 uppercase tracking-widest ml-1">Suggested Contacts</p>
-                 <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {Object.values(allUsers)
-                      .filter(u => u.uid !== currentUser.uid)
-                      .slice(0, 5)
-                      .map(u => (
-                        <div 
-                          key={u.uid} 
-                          onClick={() => { setActiveChat({ uid: u.uid }); setIsNewChatModalOpen(false); }}
-                          className="flex items-center gap-3 p-3 hover:bg-[#f1f3f4] rounded-xl cursor-pointer transition-colors"
-                        >
-                           <div className="w-10 h-10 rounded-full bg-[#e0e2e5] flex items-center justify-center text-sm font-bold">
-                              {u.displayName ? u.displayName[0] : "?"}
-                           </div>
-                           <div className="flex flex-col">
-                              <span className="font-medium text-sm">{u.displayName || "Unknown User"}</span>
-                              <span className="text-[10px] text-[#73777f] font-mono">{u.phoneNumber}</span>
-                           </div>
+                <!-- Active Chat State -->
+                <div id="active-chat-state" class="hidden flex flex-col h-full">
+                    <header class="flex items-center justify-between px-4 py-2 border-b border-[#e0e2e5] bg-white h-[72px] shrink-0">
+                        <div class="flex items-center gap-3">
+                            <button onclick="closeChat()" class="md:hidden p-2 hover:bg-[#e0e2e5] rounded-full"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+                            <div class="w-11 h-11 rounded-full bg-[#e0e2e5] flex items-center justify-center overflow-hidden border border-[#f1f3f4]">
+                                <span id="active-chat-avatar" class="text-lg font-bold text-[#43474e]">?</span>
+                            </div>
+                            <div>
+                                <h2 id="active-chat-name" class="text-[#191c1e] font-medium text-lg leading-tight">Name</h2>
+                                <p id="active-chat-id" class="text-[11px] text-[#73777f] font-mono">ID</p>
+                            </div>
                         </div>
-                      ))}
-                 </div>
-              </div>
+                    </header>
 
-              <button 
-                type="submit"
-                disabled={!newChatInput.trim()}
-                className="w-full bg-[#00639b] text-white font-medium py-4 rounded-full disabled:opacity-50 transition-all shadow-md active:scale-95"
-              >
-                Start Chat
-              </button>
-            </form>
-          </div>
+                    <div id="messages-container" class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-1.5 scroll-smooth hide-scrollbar">
+                        <!-- Messages injected here -->
+                    </div>
+
+                    <div class="p-4 bg-[#f8fdff]">
+                        <form id="message-form" class="flex items-end gap-2 bg-[#f0f4f8] rounded-[28px] p-1.5 shadow-sm border border-[#e0e2e5]">
+                            <button type="button" class="p-3 text-[#43474e] hover:bg-[#e0e2e5] rounded-full shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg></button>
+                            <textarea id="message-input" placeholder="RCS message" class="flex-1 bg-transparent border-none outline-none py-3 px-2 text-[#191c1e] resize-none max-h-32" rows="1"></textarea>
+                            <button type="submit" class="p-2.5 rounded-full bg-[#00639b] text-white shadow-md active:scale-90 transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </div>
-      )}
+
+        <!-- Modals -->
+        <div id="profile-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-md p-4">
+            <div class="bg-white rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl p-8">
+                <h2 class="text-2xl font-medium mb-2 text-center">Your Profile</h2>
+                <input id="display-name-input" type="text" placeholder="Your Name" class="w-full bg-[#f0f4f8] rounded-xl py-4 px-4 text-lg outline-none mb-4 border-b-2 border-transparent focus:border-[#00639b]">
+                <button onclick="saveProfile()" class="w-full bg-[#00639b] text-white font-medium py-4 rounded-full shadow-md">Save & Continue</button>
+            </div>
+        </div>
+
+        <div id="new-chat-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <div class="bg-white rounded-[28px] w-full max-w-md overflow-hidden shadow-2xl p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-medium">New conversation</h2>
+                    <button onclick="closeModal('new-chat-modal')" class="p-2 hover:bg-[#f1f3f4] rounded-full"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+                <input id="new-chat-input" type="text" placeholder="Type a name, number, or ID" class="w-full bg-[#f1f3f4] rounded-2xl py-4 px-5 text-lg outline-none mb-6">
+                <button onclick="startChat()" class="w-full bg-[#00639b] text-white font-medium py-4 rounded-full shadow-md">Start Chat</button>
+            </div>
+        </div>
     </div>
-  );
-}
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC6fcHsdtBCHLWDLKm9yIJokgeoll0i7c0",
+            authDomain: "os-chat-and-phone.firebaseapp.com",
+            projectId: "os-chat-and-phone",
+            storageBucket: "os-chat-and-phone.firebasestorage.app",
+            messagingSenderId: "177525708536",
+            appId: "1:177525708536:web:0238d2be8837452a214d0d",
+            measurementId: "G-SBKNFS2LRE"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = "google-messages-clone";
+
+        let currentUser = null;
+        let userProfile = null;
+        let allUsers = {};
+        let activeChatId = null;
+
+        // UI Handlers
+        window.handleLogin = async () => {
+            document.getElementById('login-btn').innerText = "Connecting...";
+            await signInAnonymously(auth);
+        };
+
+        window.openProfileModal = () => document.getElementById('profile-modal').classList.remove('hidden');
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        window.openNewChatModal = () => document.getElementById('new-chat-modal').classList.remove('hidden');
+
+        window.saveProfile = async () => {
+            const name = document.getElementById('display-name-input').value.trim();
+            if (!name || !currentUser) return;
+            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+            await setDoc(userRef, { ...userProfile, displayName: name }, { merge: true });
+            closeModal('profile-modal');
+        };
+
+        window.copyMyNumber = () => {
+            const num = userProfile?.phoneNumber;
+            if (!num) return;
+            const el = document.createElement('textarea');
+            el.value = num;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            const icon = document.getElementById('copy-icon');
+            icon.style.color = "green";
+            setTimeout(() => icon.style.color = "", 2000);
+        };
+
+        window.startChat = () => {
+            const input = document.getElementById('new-chat-input').value.trim();
+            if (!input) return;
+            // Check if input is a name in allUsers
+            const found = Object.values(allUsers).find(u => u.displayName?.toLowerCase() === input.toLowerCase() || u.phoneNumber === input);
+            selectChat(found ? found.uid : input);
+            closeModal('new-chat-modal');
+            document.getElementById('new-chat-input').value = '';
+        };
+
+        window.selectChat = (uid) => {
+            activeChatId = uid;
+            document.getElementById('welcome-state').classList.add('hidden');
+            document.getElementById('active-chat-state').classList.remove('hidden');
+            document.getElementById('sidebar').classList.add('hidden');
+            if (window.innerWidth >= 768) document.getElementById('sidebar').classList.remove('hidden');
+            document.getElementById('chat-window').classList.remove('hidden');
+            
+            const contact = allUsers[uid];
+            document.getElementById('active-chat-name').innerText = contact?.displayName || "Unknown User";
+            document.getElementById('active-chat-id').innerText = contact?.phoneNumber || uid.substring(0, 8);
+            document.getElementById('active-chat-avatar').innerText = (contact?.displayName || "?")[0].toUpperCase();
+            
+            renderMessages();
+        };
+
+        window.closeChat = () => {
+            activeChatId = null;
+            document.getElementById('chat-window').classList.add('hidden', 'md:flex');
+            document.getElementById('sidebar').classList.remove('hidden');
+        };
+
+        // Auth Listener
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUser = user;
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-interface').classList.remove('hidden');
+                
+                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+                const snap = await getDoc(userRef);
+                
+                if (snap.exists()) {
+                    userProfile = snap.data();
+                    if (!userProfile.displayName) openProfileModal();
+                } else {
+                    userProfile = { 
+                        uid: user.uid, 
+                        displayName: '', 
+                        phoneNumber: `MSG-${user.uid.substring(0, 6).toUpperCase()}` 
+                    };
+                    await setDoc(userRef, userProfile);
+                    openProfileModal();
+                }
+                
+                document.getElementById('my-phone-number').innerText = userProfile.phoneNumber;
+                document.getElementById('profile-btn').innerText = userProfile.displayName ? userProfile.displayName[0].toUpperCase() : "?";
+                
+                setupListeners();
+            } else {
+                document.getElementById('login-screen').classList.remove('hidden');
+                document.getElementById('main-interface').classList.add('hidden');
+            }
+        });
+
+        let messages = [];
+        function setupListeners() {
+            // Users listener
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
+                snap.docs.forEach(d => allUsers[d.id] = d.data());
+                renderConversations();
+            });
+
+            // Messages listener
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), (snap) => {
+                messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderConversations();
+                renderMessages();
+            });
+        }
+
+        function renderConversations() {
+            const list = document.getElementById('conversations-list');
+            const contactIds = new Set();
+            messages.forEach(m => {
+                if (m.senderId === currentUser.uid) contactIds.add(m.receiverId);
+                else if (m.receiverId === currentUser.uid) contactIds.add(m.senderId);
+            });
+
+            list.innerHTML = Array.from(contactIds).map(uid => {
+                const contact = allUsers[uid];
+                const chatMsgs = messages.filter(m => m.senderId === uid || m.receiverId === uid);
+                const last = chatMsgs.sort((a,b) => b.createdAt - a.createdAt)[0];
+                return `
+                    <div onclick="selectChat('${uid}')" class="flex items-center gap-4 px-4 py-3 cursor-pointer mx-2 rounded-[24px] hover:bg-[#e0e2e5] ${activeChatId === uid ? 'active-chat' : ''}">
+                        <div class="w-14 h-14 rounded-full bg-[#e0e2e5] flex items-center justify-center border-2 border-white shrink-0">
+                            <span class="text-xl font-bold">${(contact?.displayName || "?")[0].toUpperCase()}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between">
+                                <h3 class="font-medium truncate">${contact?.displayName || uid.substring(0,8)}</h3>
+                                <span class="text-xs text-[#73777f]">${last ? new Date(last.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</span>
+                            </div>
+                            <p class="text-sm truncate text-[#43474e]">${last ? last.text : 'Draft'}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderMessages() {
+            if (!activeChatId) return;
+            const container = document.getElementById('messages-container');
+            const filtered = messages.filter(m => m.senderId === activeChatId || m.receiverId === activeChatId)
+                                     .sort((a,b) => a.createdAt - b.createdAt);
+            
+            container.innerHTML = filtered.map((m, i) => {
+                const isMe = m.senderId === currentUser.uid;
+                const isFirst = i === 0 || filtered[i-1].senderId !== m.senderId;
+                return `
+                    <div class="flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isFirst ? 'mt-4' : 'mt-0.5'}">
+                        ${isFirst && !isMe ? `<span class="text-[11px] font-medium text-[#73777f] ml-1 mb-1 uppercase">${m.senderName || 'Contact'}</span>` : ''}
+                        <div class="px-4 py-3 text-[15px] max-w-[85%] message-bubble shadow-sm ${isMe ? 'bg-[#00639b] text-white rounded-tr-none' : 'bg-[#e0e2e5] text-[#191c1e] rounded-tl-none'}">
+                            ${m.text}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        document.getElementById('message-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+            if (!text || !activeChatId) return;
+            
+            input.value = '';
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), {
+                text,
+                senderId: currentUser.uid,
+                receiverId: activeChatId,
+                senderName: userProfile.displayName,
+                createdAt: Date.now()
+            });
+        };
+    </script>
+</body>
+</html>
